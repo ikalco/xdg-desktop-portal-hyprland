@@ -15,6 +15,8 @@ set(SYSTEMD_SERVICES
 
 if(CMAKE_BUILD_TYPE MATCHES Debug OR CMAKE_BUILD_TYPE MATCHES DEBUG)
   message(STATUS "Configuring XDPH in Debug with CMake")
+  set(CMAKE_EXECUTABLE_ENABLE_EXPORTS TRUE)
+  set(CMAKE_EXPORT_COMPILE_COMMANDS TRUE)
   add_compile_definitions(HYPRLAND_DEBUG)
 else()
   add_compile_options(-O3)
