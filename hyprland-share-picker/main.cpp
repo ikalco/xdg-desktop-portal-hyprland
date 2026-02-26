@@ -63,7 +63,7 @@ std::vector<SWindowEntry> getWindows(const char* env) {
 
         // window address
         const auto WINDOWSEPPOS = rolling.find("[HA>]");
-        const auto WINDOWADDR = rolling.substr(TITLESEPPOS + 5, WINDOWSEPPOS - 5 - TITLESEPPOS);
+        const auto WINDOWADDR   = rolling.substr(TITLESEPPOS + 5, WINDOWSEPPOS - 5 - TITLESEPPOS);
 
         try {
             result.push_back({TITLESTR, CLASSSTR, std::stoull(IDSTR)});
@@ -80,10 +80,27 @@ std::vector<SWindowEntry> getWindows(const char* env) {
 int main(int argc, char* argv[]) {
     qputenv("QT_LOGGING_RULES", "qml=false");
 
-    bool allowTokenByDefault = false;
+    bool overlayCursorByDefault = true;
+    bool allowTokenByDefault    = false;
+    bool disableScreen          = false;
+    bool disableWindow          = false;
+    bool disableRegion          = false;
     for (int i = 1; i < argc; ++i) {
+        if (argv[i] == std::string{"--overlay-cursor"})
+            overlayCursorByDefault = true;
         if (argv[i] == std::string{"--allow-token"})
             allowTokenByDefault = true;
+        if (argv[i] == std::string{"--disable-screen"})
+            disableScreen = true;
+        if (argv[i] == std::string{"--disable-window"})
+            disableWindow = true;
+        if (argv[i] == std::string{"--disable-region"})
+            disableRegion = true;
+    }
+
+    if (disableScreen && disableWindow && disableRegion) {
+        std::cout << "error0";
+        return 1;
     }
 
     const char*  WINDOWLISTSTR = getenv("XDPH_WINDOW_SHARING_LIST");
@@ -100,161 +117,172 @@ int main(int argc, char* argv[]) {
     QCoreApplication::setApplicationName("org.hyprland.xdg-desktop-portal-hyprland");
 
     // get the tabwidget
-    const auto TABWIDGET        = w.findChild<QTabWidget*>("tabWidget");
-    const auto ALLOWTOKENBUTTON = w.findChild<QCheckBox*>("checkBox");
-
-    if (allowTokenByDefault)
-        ALLOWTOKENBUTTON->setCheckState(Qt::CheckState::Checked);
-
-    const auto TAB1 = (QWidget*)TABWIDGET->children()[0];
-
-    const auto SCREENS_SCROLL_AREA_CONTENTS =
-        (QWidget*)TAB1->findChild<QWidget*>("screens")->findChild<QScrollArea*>("scrollArea")->findChild<QWidget*>("scrollAreaWidgetContents");
-
-    const auto SCREENS_SCROLL_AREA_CONTENTS_LAYOUT = SCREENS_SCROLL_AREA_CONTENTS->layout();
-
-    // add all screens
-    const auto    SCREENS = picker.screens();
+    const auto    TABWIDGET           = w.findChild<QTabWidget*>("tabWidget");
+    const auto    ALLOWTOKENBUTTON    = w.findChild<QCheckBox*>("restoreCheckBox");
+    const auto    OVERLAYCURSORBUTTON = w.findChild<QCheckBox*>("cursorCheckBox");
 
     constexpr int BUTTON_HEIGHT = 41;
 
-    for (int i = 0; i < SCREENS.size(); ++i) {
-        const auto    GEOMETRY = SCREENS[i]->geometry();
+    if (allowTokenByDefault)
+        ALLOWTOKENBUTTON->setCheckState(Qt::CheckState::Checked);
+    if (overlayCursorByDefault)
+        OVERLAYCURSORBUTTON->setCheckState(Qt::CheckState::Checked);
 
-        QString       text = QString::fromStdString(std::string("Screen " + std::to_string(i) + " at " + std::to_string(GEOMETRY.x()) + ", " + std::to_string(GEOMETRY.y()) + " (" +
-                                                                std::to_string(GEOMETRY.width()) + "x" + std::to_string(GEOMETRY.height()) + ") (") +
-                                                    SCREENS[i]->name().toStdString() + ")");
-        QString       outputName = SCREENS[i]->name();
-        ElidedButton* button     = new ElidedButton(text);
-        button->setMinimumSize(0, BUTTON_HEIGHT);
-        SCREENS_SCROLL_AREA_CONTENTS_LAYOUT->addWidget(button);
+    const auto TAB1 = (QWidget*)TABWIDGET->children()[0];
+    // add all screens
+    const auto SCREENS = picker.screens();
 
-        QObject::connect(button, &QPushButton::clicked, [=]() {
-            std::cout << "[SELECTION]";
-            std::cout << (ALLOWTOKENBUTTON->isChecked() ? "r" : "");
-            std::cout << "/";
+    if (!disableScreen) {
+        const auto SCREENS_SCROLL_AREA_CONTENTS =
+            (QWidget*)TAB1->findChild<QWidget*>("screens")->findChild<QScrollArea*>("scrollArea")->findChild<QWidget*>("scrollAreaWidgetContents");
+        const auto SCREENS_SCROLL_AREA_CONTENTS_LAYOUT = SCREENS_SCROLL_AREA_CONTENTS->layout();
 
-            std::cout << "screen:" << outputName.toStdString() << "\n";
+        for (int i = 0; i < SCREENS.size(); ++i) {
+            const auto GEOMETRY = SCREENS[i]->geometry();
 
-            settings->setValue("width", mainPickerPtr->width());
-            settings->setValue("height", mainPickerPtr->height());
-            settings->sync();
+            QString text = QString::fromStdString(std::string("Screen " + std::to_string(i) + " at " + std::to_string(GEOMETRY.x()) + ", " + std::to_string(GEOMETRY.y()) + " (" +
+                                                              std::to_string(GEOMETRY.width()) + "x" + std::to_string(GEOMETRY.height()) + ") (") +
+                                                  SCREENS[i]->name().toStdString() + ")");
+            QString outputName   = SCREENS[i]->name();
+            ElidedButton* button = new ElidedButton(text);
+            button->setMinimumSize(0, BUTTON_HEIGHT);
+            SCREENS_SCROLL_AREA_CONTENTS_LAYOUT->addWidget(button);
 
-            pickerPtr->quit();
-            return 0;
-        });
+            QObject::connect(button, &QPushButton::clicked, [=]() {
+                std::cout << "[SELECTION]";
+                std::cout << (ALLOWTOKENBUTTON->isChecked() ? "r" : "");
+                std::cout << (OVERLAYCURSORBUTTON->isChecked() ? "c" : "");
+                std::cout << "/";
+
+                std::cout << "screen:" << outputName.toStdString() << "\n";
+
+                settings->setValue("width", mainPickerPtr->width());
+                settings->setValue("height", mainPickerPtr->height());
+                settings->sync();
+
+                pickerPtr->quit();
+                return 0;
+            });
+        }
+
+        QSpacerItem* SCREENS_SPACER = new QSpacerItem(0, 0, QSizePolicy::Minimum, QSizePolicy::Expanding);
+        SCREENS_SCROLL_AREA_CONTENTS_LAYOUT->addItem(SCREENS_SPACER);
     }
 
-    QSpacerItem* SCREENS_SPACER = new QSpacerItem(0, 10000, QSizePolicy::Expanding, QSizePolicy::Expanding);
-    SCREENS_SCROLL_AREA_CONTENTS_LAYOUT->addItem(SCREENS_SPACER);
+    if (!disableWindow) {
+        // windows
+        const auto WINDOWS_SCROLL_AREA_CONTENTS =
+            (QWidget*)TAB1->findChild<QWidget*>("windows")->findChild<QScrollArea*>("scrollArea_2")->findChild<QWidget*>("scrollAreaWidgetContents_2");
 
-    // windows
-    const auto WINDOWS_SCROLL_AREA_CONTENTS =
-        (QWidget*)TAB1->findChild<QWidget*>("windows")->findChild<QScrollArea*>("scrollArea_2")->findChild<QWidget*>("scrollAreaWidgetContents_2");
+        const auto WINDOWS_SCROLL_AREA_CONTENTS_LAYOUT = WINDOWS_SCROLL_AREA_CONTENTS->layout();
 
-    const auto WINDOWS_SCROLL_AREA_CONTENTS_LAYOUT = WINDOWS_SCROLL_AREA_CONTENTS->layout();
+        // loop over them
+        for (auto& window : WINDOWLIST) {
+            QString       text = QString::fromStdString(window.clazz + ": " + window.name);
 
-    // loop over them
-    int windowIterator = 0;
-    for (auto& window : WINDOWLIST) {
-        QString       text = QString::fromStdString(window.clazz + ": " + window.name);
+            ElidedButton* button = new ElidedButton(text);
+            button->setMinimumSize(0, BUTTON_HEIGHT);
+            WINDOWS_SCROLL_AREA_CONTENTS_LAYOUT->addWidget(button);
+
+            mainPickerPtr->windowIDs[button] = window.id;
+
+            QObject::connect(button, &QPushButton::clicked, [=]() {
+                std::cout << "[SELECTION]";
+                std::cout << (ALLOWTOKENBUTTON->isChecked() ? "r" : "");
+                std::cout << (OVERLAYCURSORBUTTON->isChecked() ? "c" : "");
+                std::cout << "/";
+
+                std::cout << "window:" << mainPickerPtr->windowIDs[button] << "\n";
+
+                settings->setValue("width", mainPickerPtr->width());
+                settings->setValue("height", mainPickerPtr->height());
+                settings->sync();
+
+                pickerPtr->quit();
+                return 0;
+            });
+        }
+
+        QSpacerItem* WINDOWS_SPACER = new QSpacerItem(0, 0, QSizePolicy::Minimum, QSizePolicy::Expanding);
+        WINDOWS_SCROLL_AREA_CONTENTS_LAYOUT->addItem(WINDOWS_SPACER);
+    }
+
+    if (!disableRegion) {
+        // lastly, region
+        const auto    REGION_OBJECT = (QWidget*)TAB1->findChild<QWidget*>("region");
+        const auto    REGION_LAYOUT = REGION_OBJECT->layout();
+
+        QString       text = "Select region...";
 
         ElidedButton* button = new ElidedButton(text);
-        button->setMinimumSize(0, BUTTON_HEIGHT);
-        WINDOWS_SCROLL_AREA_CONTENTS_LAYOUT->addWidget(button);
-
-        mainPickerPtr->windowIDs[button] = window.id;
+        button->setMaximumSize(400, BUTTON_HEIGHT);
+        REGION_LAYOUT->addWidget(button);
 
         QObject::connect(button, &QPushButton::clicked, [=]() {
-            std::cout << "[SELECTION]";
-            std::cout << (ALLOWTOKENBUTTON->isChecked() ? "r" : "");
-            std::cout << "/";
+            auto REGION = execAndGet("slurp -f \"%o %x %y %w %h\"");
+            REGION      = REGION.substr(0, REGION.length());
 
-            std::cout << "window:" << mainPickerPtr->windowIDs[button] << "\n";
+            // now, get the screen
+            QScreen* pScreen = nullptr;
+            if (REGION.find_first_of(' ') == std::string::npos) {
+                std::cout << "error1\n";
+                pickerPtr->quit();
+                return 1;
+            }
+            const auto SCREEN_NAME = REGION.substr(0, REGION.find_first_of(' '));
 
-            settings->setValue("width", mainPickerPtr->width());
-            settings->setValue("height", mainPickerPtr->height());
-            settings->sync();
+            for (auto& screen : SCREENS) {
+                if (screen->name().toStdString() == SCREEN_NAME) {
+                    pScreen = screen;
+                    break;
+                }
+            }
 
+            if (!pScreen) {
+                std::cout << "error2\n";
+                pickerPtr->quit();
+                return 1;
+            }
+
+            // get all the coords
+            try {
+                REGION       = REGION.substr(REGION.find_first_of(' ') + 1);
+                const auto X = std::stoi(REGION.substr(0, REGION.find_first_of(' ')));
+                REGION       = REGION.substr(REGION.find_first_of(' ') + 1);
+                const auto Y = std::stoi(REGION.substr(0, REGION.find_first_of(' ')));
+                REGION       = REGION.substr(REGION.find_first_of(' ') + 1);
+                const auto W = std::stoi(REGION.substr(0, REGION.find_first_of(' ')));
+                REGION       = REGION.substr(REGION.find_first_of(' ') + 1);
+                const auto H = std::stoi(REGION);
+
+                std::cout << "[SELECTION]";
+                std::cout << (ALLOWTOKENBUTTON->isChecked() ? "r" : "");
+                std::cout << (OVERLAYCURSORBUTTON->isChecked() ? "c" : "");
+                std::cout << "/";
+
+                std::cout << "region:" << SCREEN_NAME << "@" << X - pScreen->geometry().x() << "," << Y - pScreen->geometry().y() << "," << W << "," << H << "\n";
+
+                settings->setValue("width", mainPickerPtr->width());
+                settings->setValue("height", mainPickerPtr->height());
+                settings->sync();
+
+                pickerPtr->quit();
+                return 0;
+            } catch (...) {
+                std::cout << "error3\n";
+                pickerPtr->quit();
+                return 1;
+            }
+
+            std::cout << "error4\n";
             pickerPtr->quit();
-            return 0;
+            return 1;
         });
-
-        windowIterator++;
     }
 
-    QSpacerItem* WINDOWS_SPACER = new QSpacerItem(0, 10000, QSizePolicy::Expanding, QSizePolicy::Expanding);
-    WINDOWS_SCROLL_AREA_CONTENTS_LAYOUT->addItem(WINDOWS_SPACER);
-
-    // lastly, region
-    const auto    REGION_OBJECT = (QWidget*)TAB1->findChild<QWidget*>("region");
-    const auto    REGION_LAYOUT = REGION_OBJECT->layout();
-
-    QString       text = "Select region...";
-
-    ElidedButton* button = new ElidedButton(text);
-    button->setMaximumSize(400, BUTTON_HEIGHT);
-    REGION_LAYOUT->addWidget(button);
-
-    QObject::connect(button, &QPushButton::clicked, [=]() {
-        auto REGION = execAndGet("slurp -f \"%o %x %y %w %h\"");
-        REGION      = REGION.substr(0, REGION.length());
-
-        // now, get the screen
-        QScreen* pScreen = nullptr;
-        if (REGION.find_first_of(' ') == std::string::npos) {
-            std::cout << "error1\n";
-            pickerPtr->quit();
-            return 1;
-        }
-        const auto SCREEN_NAME = REGION.substr(0, REGION.find_first_of(' '));
-
-        for (auto& screen : SCREENS) {
-            if (screen->name().toStdString() == SCREEN_NAME) {
-                pScreen = screen;
-                break;
-            }
-        }
-
-        if (!pScreen) {
-            std::cout << "error2\n";
-            pickerPtr->quit();
-            return 1;
-        }
-
-        // get all the coords
-        try {
-            REGION       = REGION.substr(REGION.find_first_of(' ') + 1);
-            const auto X = std::stoi(REGION.substr(0, REGION.find_first_of(' ')));
-            REGION       = REGION.substr(REGION.find_first_of(' ') + 1);
-            const auto Y = std::stoi(REGION.substr(0, REGION.find_first_of(' ')));
-            REGION       = REGION.substr(REGION.find_first_of(' ') + 1);
-            const auto W = std::stoi(REGION.substr(0, REGION.find_first_of(' ')));
-            REGION       = REGION.substr(REGION.find_first_of(' ') + 1);
-            const auto H = std::stoi(REGION);
-
-            std::cout << "[SELECTION]";
-            std::cout << (ALLOWTOKENBUTTON->isChecked() ? "r" : "");
-            std::cout << "/";
-
-            std::cout << "region:" << SCREEN_NAME << "@" << X - pScreen->geometry().x() << "," << Y - pScreen->geometry().y() << "," << W << "," << H << "\n";
-
-            settings->setValue("width", mainPickerPtr->width());
-            settings->setValue("height", mainPickerPtr->height());
-            settings->sync();
-
-            pickerPtr->quit();
-            return 0;
-        } catch (...) {
-            std::cout << "error3\n";
-            pickerPtr->quit();
-            return 1;
-        }
-
-        std::cout << "error4\n";
-        pickerPtr->quit();
-        return 1;
-    });
+    TABWIDGET->setTabVisible(0, !disableScreen);
+    TABWIDGET->setTabVisible(1, !disableWindow);
+    TABWIDGET->setTabVisible(2, !disableRegion);
 
     w.show();
     return picker.exec();
