@@ -1,18 +1,25 @@
 #pragma once
 
 #include <sdbus-c++/sdbus-c++.h>
-#include "../dbusDefines.hpp"
 
-class CScreenshotPortal {
-  public:
-    CScreenshotPortal();
+#include "../includes.hpp"
+#include "../core/DBusManager.hpp"
+#include "../core/WaylandManager.hpp"
 
-    dbUasv onScreenshot(sdbus::ObjectPath requestHandle, std::string appID, std::string parentWindow, std::unordered_map<std::string, sdbus::Variant> options);
-    dbUasv onPickColor(sdbus::ObjectPath requestHandle, std::string appID, std::string parentWindow, std::unordered_map<std::string, sdbus::Variant> options);
+namespace DBus {
+    class CScreenshotPortal {
+      public:
+        CScreenshotPortal();
 
-  private:
-    std::unique_ptr<sdbus::IObject> m_pObject;
+        bool   init(const Wayland::SSupportedProtos& protos);
 
-    const sdbus::InterfaceName      INTERFACE_NAME = sdbus::InterfaceName{"org.freedesktop.impl.portal.Screenshot"};
-    const sdbus::ObjectPath         OBJECT_PATH    = sdbus::ObjectPath{"/org/freedesktop/portal/desktop"};
+        dbUasv onScreenshot(sdbus::ObjectPath requestHandle, std::string appID, std::string parentWindow, std::unordered_map<std::string, sdbus::Variant> options);
+        dbUasv onPickColor(sdbus::ObjectPath requestHandle, std::string appID, std::string parentWindow, std::unordered_map<std::string, sdbus::Variant> options);
+
+      private:
+        UP<sdbus::IObject>         m_object;
+        std::string                m_lastScreenshotFile = "";
+
+        const sdbus::InterfaceName INTERFACE_NAME = sdbus::InterfaceName{"org.freedesktop.impl.portal.Screenshot"};
+    };
 };
