@@ -1,12 +1,15 @@
 #include "Screenshot.hpp"
+
 #include "../core/PortalManager.hpp"
+#include "../core/DBusManager.hpp"
+
 #include "../helpers/Log.hpp"
 #include "../helpers/MiscFunctions.hpp"
 
 #include <regex>
 #include <filesystem>
 
-std::string lastScreenshot;
+using namespace DBus;
 
 //
 static dbUasv pickHyprPicker(sdbus::ObjectPath requestHandle, std::string appID, std::string parentWindow, std::unordered_map<std::string, sdbus::Variant> options) {
@@ -92,9 +95,32 @@ static dbUasv pickSlurp(sdbus::ObjectPath requestHandle, std::string appID, std:
 }
 
 CScreenshotPortal::CScreenshotPortal() {
-    m_pObject = sdbus::createObject(*g_pPortalManager->getConnection(), OBJECT_PATH);
+    if (!inShellPath("grim"))
+        Debug::log(WARN, "[screenshot] grim not found. Screenshots will not work.");
+    else {
 
-    m_pObject
+        if (!inShellPath("slurp"))
+            Debug::log(WARN, "[screenshot] slurp not found. You won't be able to select a region when screenshotting.");
+
+        if (!inShellPath("slurp") && !inShellPath("hyprpicker"))
+            Debug::log(WARN, "[screenshot] Neither slurp nor hyprpicker found. You won't be able to pick colors.");
+        else if (!inShellPath("hyprpicker"))
+            Debug::log(INFO, "[screenshot] hyprpicker not found. We suggest to use hyprpicker for color picking to be less meh.");
+    }
+}
+
+bool CScreenshotPortal::init(const Wayland::SSupportedProtos& protos) {
+    if (!protos.wlr_screencopy && (!protos.image_capture_source || !protos.image_copy_capture))
+        return false;
+
+    if (!DBus::mgr()) {
+        Debug::log(ERR, "[screenshot] failed, dbus is not initialized");
+        return false;
+    }
+
+    m_object = CUniquePointer<sdbus::IObject>(sdbus::createObject(DBus::mgr()->connection(), DBus::OBJECT_PATH).release());
+
+    m_object
         ->addVTable(
             sdbus::registerMethod("Screenshot").implementedAs([this](sdbus::ObjectPath o, std::string s1, std::string s2, std::unordered_map<std::string, sdbus::Variant> m) {
                 return onScreenshot(o, s1, s2, m);
@@ -106,24 +132,21 @@ CScreenshotPortal::CScreenshotPortal() {
         .forInterface(INTERFACE_NAME);
 
     Debug::log(LOG, "[screenshot] init successful");
+
+    return true;
 }
 
 dbUasv CScreenshotPortal::onScreenshot(sdbus::ObjectPath requestHandle, std::string appID, std::string parentWindow, std::unordered_map<std::string, sdbus::Variant> options) {
-
     Debug::log(LOG, "[screenshot] New screenshot request:");
     Debug::log(LOG, "[screenshot]  | {}", requestHandle.c_str());
     Debug::log(LOG, "[screenshot]  | appid: {}", appID);
 
     bool isInteractive = options.count("interactive") && options["interactive"].get<bool>() && inShellPath("slurp");
 
-    // make screenshot
-
-    const auto RUNTIME_DIR = getenv("XDG_RUNTIME_DIR");
     srand(time(nullptr));
 
-    const std::string                               HYPR_DIR             = RUNTIME_DIR ? std::string{RUNTIME_DIR} + "/hypr/" : "/tmp/hypr/";
     const std::string                               SNAP_FILE            = std::format("xdph_screenshot_{:x}.png", rand()); // rand() is good enough
-    const std::string                               FILE_PATH            = HYPR_DIR + SNAP_FILE;
+    const std::string                               FILE_PATH            = Portal::mgr()->hyprDir() + SNAP_FILE;
     const std::string                               SNAP_CMD             = "grim '" + FILE_PATH + "'";
     const std::string                               SNAP_INTERACTIVE_CMD = "grim -g \"$(slurp)\" '" + FILE_PATH + "'";
 
@@ -131,12 +154,12 @@ dbUasv CScreenshotPortal::onScreenshot(sdbus::ObjectPath requestHandle, std::str
     results["uri"] = sdbus::Variant{"file://" + FILE_PATH};
 
     std::filesystem::remove(FILE_PATH);
-    std::filesystem::create_directory(HYPR_DIR);
+    std::filesystem::create_directory(Portal::mgr()->hyprDir());
 
     // remove last screenshot. This could cause issues if the app hasn't read the screenshot back yet, but oh well.
-    if (!lastScreenshot.empty())
-        std::filesystem::remove(lastScreenshot);
-    lastScreenshot = FILE_PATH;
+    if (!m_lastScreenshotFile.empty())
+        std::filesystem::remove(m_lastScreenshotFile);
+    m_lastScreenshotFile = FILE_PATH;
 
     if (isInteractive)
         execAndGet(SNAP_INTERACTIVE_CMD.c_str());
@@ -149,7 +172,6 @@ dbUasv CScreenshotPortal::onScreenshot(sdbus::ObjectPath requestHandle, std::str
 }
 
 dbUasv CScreenshotPortal::onPickColor(sdbus::ObjectPath requestHandle, std::string appID, std::string parentWindow, std::unordered_map<std::string, sdbus::Variant> options) {
-
     Debug::log(LOG, "[screenshot] New PickColor request:");
     Debug::log(LOG, "[screenshot]  | {}", requestHandle.c_str());
     Debug::log(LOG, "[screenshot]  | appid: {}", appID);
